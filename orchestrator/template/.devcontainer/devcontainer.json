@@ -1,0 +1,37 @@
+{
+  "name": "{{PROJECT}} (orchestrator)",
+  // Generic base. Add the child repos' toolchains as Features (e.g. java, python, dotnet),
+  // or replace "image" with a "build" block reusing a child repo's Dockerfile:
+  //   "build": { "context": "../<folder>/.devcontainer", "dockerfile": "../<folder>/.devcontainer/Dockerfile" }
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": { "updateRemoteUserUID": true },
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  // Same path as on the host: git worktrees store absolute paths, so the child repos and
+  // their worktrees stay valid both inside and outside the container.
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  // Claude Code login is NOT mounted here: it comes from the user-level
+  // dev.containers.defaultFeatures (shared-logins) + dotfiles install.sh
+  // (or orch-up on a host without VS Code).
+  // Runs on the host before the container is created: a bind mount of a missing
+  // directory would abort the build on machines/users without ~/.ssh.
+  "initializeCommand": "mkdir -p \"$HOME/.ssh\"",
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/tmp/.ssh-host,type=bind,readonly"
+  ],
+  // With rootless Docker (shared servers) use "root": it maps to your own host user.
+  // Keep the same remoteUser in every devcontainer on this Docker engine: they share the
+  // login volumes, and files written by another user can be unreadable here.
+  "remoteUser": "vscode",
+  "shutdownAction": "stopContainer",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "settings": { "terminal.integrated.defaultProfile.linux": "bash" },
+      "extensions": ["anthropic.claude-code", "ms-azuretools.vscode-docker"]
+    }
+  }
+}

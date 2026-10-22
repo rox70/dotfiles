@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# orch-update — refreshes the managed files of an existing orchestrator from dotfiles/orchestrator.
+#
+#   orch-update [-n] [<orchestrator-dir>]     (default dir: the current git toplevel)
+#
+#   -n   dry run: only show what would change
+#
+# Only the generic plumbing (Makefile, scripts/*.sh) is managed and overwritten. Project-owned
+# files (CLAUDE.md, repos.conf, .devcontainer/, .claude/, docs/, overlay/) are never touched:
+# template files missing from the orchestrator are just listed so you can copy them by hand.
+# Review the result with `git diff` in the orchestrator and commit it.
+set -euo pipefail
+TEMPLATE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../template" && pwd)"
+# Managed = the Makefile and every template script, so a script added to the template later
+# (e.g. scripts/addon.sh) reaches existing orchestrators too.
+MANAGED=(Makefile)
+for f in "$TEMPLATE"/scripts/*.sh; do MANAGED+=("scripts/$(basename "$f")"); done
+
+dry=0
+[[ "${1:-}" == "-n" ]] && { dry=1; shift; }
+[[ "${1:-}" == -h || "${1:-}" == --help ]] && { sed -n '3,12p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; exit 0; }
+orch="$(cd "${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}" && pwd)"
+[[ -f "$orch/repos.conf" && -f "$orch/overlay/manifest" ]] \
+  || { echo "$orch does not look like an orchestrator (repos.conf / overlay/manifest missing)" >&2; exit 1; }
+
+changed=0
+for f in "${MANAGED[@]}"; do
+  if [[ ! -e "$orch/$f" ]]; then
+    echo "add     $f"
+  elif cmp -s "$TEMPLATE/$f" "$orch/$f"; then
+    continue
+  else
+    echo "update  $f"; { diff -u "$orch/$f" "$TEMPLATE/$f" || true; } | sed -n '3,$p' | sed 's/^/        /' | head -40 || true
+  fi
+  changed=1
+  if [[ $dry == 0 ]]; then mkdir -p "$(dirname "$orch/$f")"; cp "$TEMPLATE/$f" "$orch/$f"; fi
+done
+[[ $changed == 1 ]] || echo "managed files already up to date"
+
+# Project-owned template files the orchestrator does not have yet (informational only)
+(cd "$TEMPLATE" && find . -type f ! -path ./repos.conf | sed 's|^\./||' | sort) | while read -r f; do
+  [[ " ${MANAGED[*]} " == *" $f "* ]] && continue
+  case "$f" in docs/integration.md|docs/architecture.md|docs/adr/*) continue ;; esac
+  [[ -e "$orch/$f" ]] || echo "absent  $f (project-owned, not copied: cp \"$TEMPLATE/$f\" \"$orch/$f\")"
+done
+# post-create.sh is project-owned: point out a missing add-on sync instead of editing it
+if [[ -f "$orch/.devcontainer/post-create.sh" ]] && ! grep -q 'addon.sh sync' "$orch/.devcontainer/post-create.sh"; then
+  echo "hint    .devcontainer/post-create.sh does not run 'scripts/addon.sh sync': add-ons in addons.conf are not reinstalled on rebuild (see the template's post-create.sh)"
+fi
+# Older orchestrators whitelist tracked files in .gitignore: addons.conf must be versioned
+if git -C "$orch" check-ignore -q addons.conf 2>/dev/null; then
+  echo "hint    addons.conf is git-ignored: add '!/addons.conf' to .gitignore (see the template's .gitignore)"
+fi
+[[ $dry == 1 || $changed == 0 ]] || echo "done: review with 'git -C \"$orch\" diff' and commit"

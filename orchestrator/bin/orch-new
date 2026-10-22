@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# orch-new — scaffolds a local orchestrator workspace from dotfiles/orchestrator/template.
+#
+#   orch-new <name> [-C <parent-dir>] [<alias>=<remote-url>[#<branch>] ...]
+#
+# Creates <parent-dir>/<name> (default parent: current directory) with the devcontainer,
+# AI overlay scripts, CLAUDE.md, docs and repos.conf, then `git init`s it (local, no remote).
+# The child repos are cloned later by `make bootstrap`, which the devcontainer's
+# post-create runs automatically. More repos can be added any time with `make add-repo`.
+#
+# Example:
+#   cd ~/source/repos
+#   orch-new <project> <alias>=git@bitbucket.org:<workspace>/<repo>.git#<branch> ...
+#   (<alias>: short name per child repo, e.g. fe/be; #<branch>: e.g. develop or main, omit it for the remote's default branch)
+set -euo pipefail
+TEMPLATE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../template" && pwd)"
+usage() { sed -n '3,14p' "$(readlink -f "${BASH_SOURCE[0]}")" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+name="" parent="$PWD" specs=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage ;;
+    -C) parent="${2:?-C needs a directory}"; shift 2 ;;
+    *=*) specs+=("$1"); shift ;;
+    -*) echo "unknown option: $1" >&2; usage 1 ;;
+    *) [[ -z "$name" ]] || { echo "unexpected argument: $1" >&2; usage 1; }; name="$1"; shift ;;
+  esac
+done
+[[ -n "$name" ]] || usage 1
+[[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "invalid name: $name" >&2; exit 1; }
+dest="$(cd "$parent" && pwd)/$name"
+if [[ -e "$dest" ]] && [[ -n "$(ls -A "$dest" 2>/dev/null)" ]]; then
+  echo "$dest already exists and is not empty" >&2; exit 1; fi
+
+# Devcontainers left over from an earlier folder at this path (renamed, moved or deleted):
+# VS Code and the devcontainer CLI find a container by its devcontainer.local_folder label
+# and reuse it instead of building the new config, so "Reopen in Container" attaches to the
+# old one and fails (exit 137). $dest is new or empty, so any container labelled for it or
+# for a folder below it (child repo devcontainers) is stale: remove it (volumes are kept).
+stale_devcontainers() {
+  command -v docker >/dev/null && docker info >/dev/null 2>&1 || return 0
+  local id f
+  docker ps -aq --filter label=devcontainer.local_folder | while read -r id; do
+    f="$(docker inspect -f '{{index .Config.Labels "devcontainer.local_folder"}}' "$id" 2>/dev/null)" || continue
+    f="${f//\\//}"                                   # VS Code on Windows + WSL: \\wsl.localhost\<distro>\home\...
+    f="${f#//wsl.localhost/*/}"; f="${f#//wsl\$/*/}"; f="/${f#/}"
+    if [[ "$f" == "$dest" || "$f" == "$dest"/* ]]; then printf '%s\n' "$id"; fi
+  done
+}
+stale="$(stale_devcontainers)"
+if [[ -n "$stale" ]]; then
+  echo "Removing devcontainers left over from an earlier folder at $dest:"
+  for id in $stale; do
+    docker inspect -f '  {{.Name}} ({{.State.Status}}, created {{.Created}})' "$id" | sed 's|/||'
+    docker rm -f "$id" >/dev/null
+  done
+fi
+
+mkdir -p "$dest"
+cp -a "$TEMPLATE/." "$dest/"
+cd "$dest"
+
+table=""
+for spec in "${specs[@]}"; do
+  alias="${spec%%=*}" rest="${spec#*=}"
+  url="${rest%%#*}" branch=""; [[ "$rest" == *#* ]] && branch="${rest#*#}"
+  [[ "$alias" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "invalid alias: $alias (use [a-z0-9_-])" >&2; exit 1; }
+  dir="$(basename "${url%.git}")"
+  printf '%-8s %-28s %s %s\n' "$alias" "$dir" "$url" "$branch" | sed 's/ *$//' >>repos.conf
+  mkdir -p "overlay/$alias"
+  table+="| $alias | \`$dir/\` | TODO: role |"$'\n'
+done
+[[ -n "$table" ]] || table="| _none yet_ | | add one with \`make add-repo ALIAS=... URL=... BRANCH=...\` |"$'\n'
+
+# Fill the placeholders ({{PROJECT}} everywhere, {{REPO_TABLE}} in CLAUDE.md)
+grep -rlF '{{PROJECT}}' . | while read -r f; do sed -i "s|{{PROJECT}}|$name|g" "$f"; done
+printf '%s' "$table" >.repo-table.tmp
+awk 'FNR==NR{t=t $0 "\n"; next} /\{\{REPO_TABLE\}\}/{printf "%s", t; next} {print}' .repo-table.tmp CLAUDE.md >CLAUDE.md.tmp
+mv CLAUDE.md.tmp CLAUDE.md; rm .repo-table.tmp
+
+# Rootless Docker (shared servers): container root = this host user, so run as root
+if docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+  sed -i 's|"remoteUser": "vscode"|"remoteUser": "root"|' .devcontainer/devcontainer.json
+  echo "Rootless Docker detected: remoteUser set to root (maps to $(id -un) on the host)"
+fi
+
+./scripts/gen-workspace.sh >/dev/null
+git init -q -b main
+git add -A
+if git config user.email >/dev/null; then
+  git commit -q -m "chore: scaffold $name orchestrator from dotfiles/orchestrator"
+  committed="initial commit created"
+else
+  committed="files staged (set git user.name/user.email, then commit)"
+fi
+
+cat <<EOF
+Created $dest ($committed)
+
+Next steps:
+  1. Describe each repo's role in CLAUDE.md and add the toolchains to .devcontainer/devcontainer.json
+  2. code "$dest"  ->  "Reopen in Container"  (post-create clones the repos and links the overlay)
+  3. More repos later:  make add-repo ALIAS=<alias> URL=<remote-url> BRANCH=<branch>
+  4. Optional AI tooling (nothing is preinstalled), inside the container:
+       make addons                  list: openspec-cli openspec speckit mattpocock superpowers
+       make addon-<name> [REPOS="<alias> ..."]
+       make marketplace NAME=<name> URL=<source>; make plugin P="<name>@<marketplace>" [REPOS=...]
+EOF

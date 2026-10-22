@@ -1,0 +1,19 @@
+# Whitelist: only the scaffold is tracked. Child repos and DDI worktrees
+# (feature-*, bugfix-*, hotfix-*, release-*, ...) are excluded automatically.
+/*
+!/.gitignore
+!/CLAUDE.md
+!/Makefile
+!/repos.conf
+!/addons.conf
+!/*.code-workspace
+!/.claude/
+!/.devcontainer/
+!/docs/
+!/contracts/
+!/harness/
+!/overlay/
+!/scripts/
+
+.claude/settings.local.json
+harness/.data/

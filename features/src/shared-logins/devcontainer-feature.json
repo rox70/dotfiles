@@ -1,0 +1,23 @@
+{
+  "id": "shared-logins",
+  "version": "1.0.0",
+  "name": "Shared tool logins",
+  "description": "Mounts the Docker named volumes that hold CLI login state (Claude Code accounts, GitHub CLI, ...) so one login per tool is shared by every devcontainer on the same Docker engine. Holds no credentials itself.",
+  "mounts": [
+    {
+      "source": "claude-host",
+      "target": "/tmp/.claude-host",
+      "type": "volume"
+    },
+    {
+      "source": "claude-accounts",
+      "target": "/tmp/.claude-accounts",
+      "type": "volume"
+    },
+    {
+      "source": "shared-logins",
+      "target": "/tmp/.shared-logins",
+      "type": "volume"
+    }
+  ]
+}

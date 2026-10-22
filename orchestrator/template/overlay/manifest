@@ -1,0 +1,12 @@
+# Local AI files to link into the child repos (and their worktrees).
+# Format: <alias|*> <path relative to the repo root>
+# After running a skill/tool that creates new files, check `make status`:
+# if untracked AI-related files show up, add them here and run `make overlay`.
+*  CLAUDE.md
+*  CLAUDE.local.md
+*  AGENTS.md
+*  docs/project-metadata.md
+*  docs/commands.md
+*  docs/conventions.md
+*  openspec
+*  .claude

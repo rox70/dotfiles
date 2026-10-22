@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# orch-up — starts an orchestrator's devcontainer WITHOUT VS Code (e.g. on a headless Linux
+# server over SSH), applying what VS Code would take from the user settings:
+# `dotfiles.repository` and `dev.containers.defaultFeatures` (shared-logins).
+#
+#   orch-up [--rebuild] [<orchestrator-dir>]      (default dir: the current git toplevel)
+#   orch-shell [<orchestrator-dir>] [cmd ...]     then open a shell (or run cmd) inside it
+#
+#   --rebuild   remove the existing container first (same as "Rebuild Container")
+#
+# Needs Docker and the devcontainer CLI (`npm i -g @devcontainers/cli`; npx is used as a
+# fallback). Overridable through env vars:
+#   ORCH_DOTFILES_REPO   dotfiles repo cloned into the container (default: this checkout's origin)
+#   ORCH_LOGIN_FEATURE   shared-login Feature reference (empty string = do not add it)
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+DOTFILES_DIR="$(cd "$(dirname "$SELF")/../.." && pwd)"
+DEFAULT_FEATURE="ghcr.io/rox70/dotfiles/shared-logins:1"
+
+rebuild=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) sed -n '2,15p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --rebuild) rebuild=(--remove-existing-container); shift ;;
+    -*) echo "unknown option: $1" >&2; exit 1 ;;
+    *) break ;;
+  esac
+done
+dir="$(cd "${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}" && pwd)"
+[[ -f "$dir/.devcontainer/devcontainer.json" ]] || { echo "no .devcontainer/devcontainer.json in $dir" >&2; exit 1; }
+
+if command -v devcontainer >/dev/null; then dc=(devcontainer)
+elif command -v npx >/dev/null; then dc=(npx -y @devcontainers/cli)
+else echo "devcontainer CLI not found: npm i -g @devcontainers/cli (needs Node.js)" >&2; exit 1; fi
+
+# Named volumes (the shared logins) belong to the Docker engine, not to a user: on a
+# multi-user host every user of a rootful engine could read them. Rootless Docker keeps
+# engine, images, containers and volumes inside the user's own profile.
+if ! docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+  humans="$(getent passwd | awk -F: '$3>=1000 && $3<65534 && $7!~/(nologin|false)$/' | wc -l)"
+  if [[ "$humans" -gt 1 ]]; then
+    echo "WARNING: this Docker engine is not rootless and $humans users can log in here: the" >&2
+    echo "  claude-host/claude-accounts/shared-logins volumes (your Claude and gh logins) are readable by any user of" >&2
+    echo "  this engine. Use rootless Docker on shared servers (see new-machine/README.md)." >&2
+  fi
+fi
+
+repo="${ORCH_DOTFILES_REPO:-$(git -C "$DOTFILES_DIR" remote get-url origin)}"
+feature="${ORCH_LOGIN_FEATURE-$DEFAULT_FEATURE}"
+extra=()
+[[ -n "$feature" ]] && extra=(--additional-features "{\"$feature\": {}}")
+
+"${dc[@]}" up --workspace-folder "$dir" "${rebuild[@]}" \
+  --dotfiles-repository "$repo" --dotfiles-install-command install.sh "${extra[@]}"
+echo "Container ready. Shell: orch-shell \"$dir\""

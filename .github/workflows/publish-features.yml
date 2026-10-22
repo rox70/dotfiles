@@ -1,0 +1,30 @@
+# Publishes the Dev Container Features under features/src/ as OCI artifacts on
+# ghcr.io (ghcr.io/rox70/dotfiles/<feature-id>:<version>, plus :<major> and
+# :<major>.<minor> tags). The packages are made public (once, in the package
+# settings), so Dev Containers can pull them without authentication from the
+# dev.containers.defaultFeatures user setting.
+# A Feature is (re)published when its `version` in devcontainer-feature.json
+# changes; publishing an unchanged version is a no-op.
+name: Publish Dev Container Features
+
+on:
+  push:
+    branches: [main]
+    paths: [features/src/**]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # the action tags the repo with <feature-id>_<version>
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: devcontainers/action@v1
+        with:
+          publish-features: "true"
+          base-path-to-features: ./features/src
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

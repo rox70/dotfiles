@@ -1,0 +1,10 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/scripts/statusline-wrapper.sh"
+  },
+  "subagentStatusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/scripts/subagent-statusline.sh"
+  }
+}

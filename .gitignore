@@ -1,0 +1,11 @@
+# Defense-in-depth: nothing under this repo should ever hold Claude Code
+# credentials/session state. The real persisted config lives on the host at
+# ~/.claude-host (outside this repo entirely, mounted into containers at
+# /tmp/.claude-host by each project's own docker-compose.yml) -- these
+# patterns just guard against someone accidentally nesting a copy in here.
+.claude-host/
+.claude-accounts/
+.claude.json
+.claude/.credentials.json
+.credentials.json
+.claude-login-backup/

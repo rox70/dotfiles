@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# orch-shell — opens a login shell (or runs a command) inside an orchestrator's devcontainer
+# started with orch-up, without VS Code.
+#
+#   orch-shell [<orchestrator-dir>] [cmd ...]     (default dir: the current git toplevel)
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+[[ "${1:-}" == -h || "${1:-}" == --help ]] && { sed -n '2,5p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0; }
+if [[ -n "${1:-}" && -d "$1" ]]; then dir="$(cd "$1" && pwd)"; shift
+else dir="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; fi
+[[ -f "$dir/.devcontainer/devcontainer.json" ]] || { echo "no .devcontainer/devcontainer.json in $dir" >&2; exit 1; }
+
+if command -v devcontainer >/dev/null; then dc=(devcontainer)
+elif command -v npx >/dev/null; then dc=(npx -y @devcontainers/cli)
+else echo "devcontainer CLI not found: npm i -g @devcontainers/cli (needs Node.js)" >&2; exit 1; fi
+
+[[ $# -gt 0 ]] || set -- bash -l
+exec "${dc[@]}" exec --workspace-folder "$dir" "$@"
