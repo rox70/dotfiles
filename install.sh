@@ -355,6 +355,19 @@ for rc in ~/.bashrc ~/.zshrc ~/.profile; do
     fi
 done
 
+# On hosts whose sshd PAM stack has no pam_systemd (e.g. RHEL with domain users),
+# SSH shells get no XDG_RUNTIME_DIR even when /run/user/<uid> exists (lingering):
+# systemctl --user and rootless Docker then fail. Export it for new shells.
+XDG_LINE='[ -n "$XDG_RUNTIME_DIR" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u)"'
+if ! in_container && [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
+    for rc in ~/.bashrc ~/.zshrc ~/.profile; do
+        if [ -f "$rc" ] && ! grep -q 'XDG_RUNTIME_DIR' "$rc"; then
+            echo "$XDG_LINE" >> "$rc"
+            echo "Added XDG_RUNTIME_DIR to $rc"
+        fi
+    done
+fi
+
 # Global npm packages (ccstatusline, ...) of a Node installed above land in
 # ~/.local/node/bin: put it on PATH for new shells too.
 if [ -x "$NODE_HOME/bin/npm" ]; then
@@ -435,8 +448,15 @@ chmod +x "$TARGET_CLAUDE/scripts/subagent-statusline.sh"
 if [ -f "$TARGET_CLAUDE/settings.json" ]; then
     if command -v jq &> /dev/null; then
         merged="$(mktemp "$TARGET_CLAUDE/.settings.json.XXXXXX")"
-        jq -s '.[0] * .[1]' "$TARGET_CLAUDE/settings.json" "$DOTFILES_DIR/claude/settings.json" > "$merged" \
-            && mv "$merged" "$TARGET_CLAUDE/settings.json" || rm -f "$merged"
+        if jq -s '.[0] * .[1]' "$TARGET_CLAUDE/settings.json" "$DOTFILES_DIR/claude/settings.json" > "$merged" \
+            && mv "$merged" "$TARGET_CLAUDE/settings.json"; then
+            :
+        else
+            rm -f "$merged"
+            # Typically a settings.json owned by root, written by a container running as
+            # real root on a rootful Docker engine.
+            warn "statusLine/subagentStatusLine not merged into $TARGET_CLAUDE/settings.json (unreadable or invalid JSON; check its owner with ls -ln). Fix it and re-run install.sh."
+        fi
     else
         warn "statusLine/subagentStatusLine not merged into $TARGET_CLAUDE/settings.json: merge them manually from $DOTFILES_DIR/claude/settings.json."
     fi

@@ -53,10 +53,28 @@ Shared Linux server (several users): keep everything in your profile.
 - `git`, `curl`, `make` are normally already there; `jq` is fetched into `~/.local/bin` and
   Node.js (latest LTS, with npm) into `~/.local/node` by `install.sh` if missing.
 - Docker must be **rootless** (`dockerd-rootless-setuptool.sh install`, once per user; the
-  admin only has to provide the `uidmap` and `docker-ce-rootless-extras` packages). In the
-  orchestrator's `devcontainer.json` set `"remoteUser": "root"`: with rootless Docker the
-  container's root is your own user on the host, while `vscode` would write files owned by
-  an unrelated sub-UID into your repos. A rootless engine keeps images,
+  admin only has to provide the `uidmap` (Debian/Ubuntu; `shadow-utils` on RHEL) and
+  `docker-ce-rootless-extras` packages). The orchestrator's `devcontainer.json` needs
+  `"remoteUser": "root"` (`orch-new` sets it when it detects rootless Docker): with rootless
+  Docker the container's root is your own user on the host, while `vscode` would write files
+  owned by an unrelated sub-UID into your repos.
+  What the setup tool can still need, with `sudo` or from the admin (seen on RHEL 8 with a
+  domain account):
+  - a sub-UID/GID range: domain users get none in `/etc/subuid`/`/etc/subgid`. Add one
+    keyed by numeric UID (domain names contain `@`), on a range no other line uses:
+    `echo "$(id -u):<start>:65536" | sudo tee -a /etc/subuid /etc/subgid`;
+  - a user systemd instance: `sudo loginctl enable-linger "$(id -u)"`. If SSH shells still
+    have no `XDG_RUNTIME_DIR` (sshd's PAM stack without `pam_systemd`), `install.sh` adds
+    the export to your shell rc files: re-run it after enabling linger;
+  - the `ip_tables` kernel module, if the tool asks for it (`--skip-iptables` would leave
+    containers without outbound network): `sudo modprobe ip_tables` and
+    `echo ip_tables | sudo tee /etc/modules-load.d/docker-rootless.conf`;
+  - `--force`, when a rootful engine runs on the same host for other users. Then
+    `docker context use rootless` makes both the CLI and VS Code use your engine; re-run
+    `install.sh` so the shared-login volumes exist in it.
+  Coming from a rootful engine, containers that ran as real root may have left root-owned
+  files in your home: `~/.claude` is a symlink, so fix its target with
+  `sudo chown -R "$(id -u):$(id -g)" ~/.claude-host`. A rootless engine keeps images,
   containers and volumes — including the shared Claude login volumes — under your home;
   with a rootful engine they would be readable by every user of it. Do not ask to be added
   to the `docker` group: it is root-equivalent on the whole server.
