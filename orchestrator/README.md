@@ -83,7 +83,8 @@ Prerequisite: the machine is set up once (`orch-new` is on the `PATH`); otherwis
    ```
 7. **Check and save**: `make status` must show no AI files in the child repos; commit the
    orchestrator's own changes (`CLAUDE.md`, `addons.conf`, `devcontainer.json`, …) in its
-   local git.
+   local git, including `.devcontainer/devcontainer-lock.json`: the first container build
+   writes it to pin the Features' versions, so it shows up untracked; keep it versioned.
 
 `orch-new` copies `template/`, fills `{{PROJECT}}` and the repo table in `CLAUDE.md`, writes
 `repos.conf`, generates the workspace file and makes the first local commit. The devcontainer's
