@@ -30,7 +30,14 @@
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
-      "settings": { "terminal.integrated.defaultProfile.linux": "bash" },
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        // Docker-published ports (app stacks, compose files of the child repos) are already
+        // reachable from the host; auto-forwarding them makes VS Code hold them on the host,
+        // and with WSL mirrored networking Docker can then no longer bind them
+        // ("address already in use"). Forward what you need with "forwardPorts".
+        "remote.autoForwardPorts": false
+      },
       "extensions": ["anthropic.claude-code", "ms-azuretools.vscode-docker"]
     }
   }
